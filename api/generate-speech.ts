@@ -10,8 +10,11 @@ const openai = new OpenAI({
 
 // Constants
 const MAX_TEXT_LENGTH = 4000;
-const VOICE = 'nova'; // Using nova as the default voice per MVP
-const MODEL = 'tts-1-hd'; // High quality model
+const DEFAULT_VOICE = 'nova';
+const DEFAULT_MODEL = 'tts-1-hd';
+
+// Available voices
+const AVAILABLE_VOICES = ['alloy', 'echo', 'fable', 'onyx', 'nova', 'shimmer'];
 
 export default async function handler(
   req: VercelRequest,
@@ -38,7 +41,7 @@ export default async function handler(
     }
 
     // Parse and validate request body
-    const { text }: TTSRequest = req.body;
+    const { text, voice = DEFAULT_VOICE, language = 'en' }: TTSRequest = req.body;
 
     if (!text || typeof text !== 'string') {
       res.status(400).json({
@@ -64,17 +67,62 @@ export default async function handler(
       return;
     }
 
+    // Validate voice
+    if (!AVAILABLE_VOICES.includes(voice)) {
+      res.status(400).json({
+        success: false,
+        error: `Invalid voice. Available voices: ${AVAILABLE_VOICES.join(', ')}`
+      } as TTSResponse);
+      return;
+    }
+
     // Generate unique filename
     const audioId = uuidv4();
-    const filename = `speech_${audioId}.mp3`;
+    const filename = `speech_${voice}_${language}_${audioId}.mp3`;
 
-    console.log(`Generating speech for ${text.length} characters...`);
+    console.log(`Generating speech: ${text.length} chars, voice: ${voice}, language: ${language}`);
+
+    let finalText = text.trim();
+    let translatedText: string | null = null;
+
+    // Translate text if language is not English
+    if (language !== 'en' && language !== 'english') {
+      try {
+        console.log(`Translating text to ${language}...`);
+        
+        const translationResponse = await openai.chat.completions.create({
+          model: 'gpt-3.5-turbo',
+          messages: [
+            {
+              role: 'system',
+              content: `You are a professional translator. Translate the given text to ${language}. Only return the translated text, nothing else.`
+            },
+            {
+              role: 'user',
+              content: text.trim()
+            }
+          ],
+          max_tokens: 2000,
+          temperature: 0.3,
+        });
+
+        translatedText = translationResponse.choices[0]?.message?.content?.trim();
+        if (translatedText) {
+          finalText = translatedText;
+          console.log(`Translation successful: ${translatedText.substring(0, 100)}...`);
+        }
+      } catch (translationError) {
+        console.error('Translation failed:', translationError);
+        // Continue with original text if translation fails
+        translatedText = null;
+      }
+    }
 
     // Call OpenAI TTS API
     const mp3Response = await openai.audio.speech.create({
-      model: MODEL,
-      voice: VOICE,
-      input: text.trim(),
+      model: DEFAULT_MODEL,
+      voice: voice as any, // TypeScript workaround for voice types
+      input: finalText,
       response_format: 'mp3',
     });
 
@@ -86,11 +134,15 @@ export default async function handler(
     const base64Audio = buffer.toString('base64');
     const audioDataUrl = `data:audio/mpeg;base64,${base64Audio}`;
 
-    // Return success response with audio data
+    // Return success response with audio data and metadata
     const response: TTSResponse = {
       success: true,
-      audioUrl: audioDataUrl, // Direct data URL instead of file path
-      filename
+      audioUrl: audioDataUrl,
+      filename,
+      voice,
+      language,
+      originalText: text.trim(),
+      translatedText: translatedText || null
     };
 
     res.status(200).json(response);

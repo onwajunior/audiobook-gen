@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { TTSRequest, TTSResponse, HealthResponse } from './types';
+import { TTSRequest, TTSResponse, HealthResponse, Voice, Language } from './types';
 
 // Configure axios defaults
 const api = axios.create({
@@ -15,14 +15,45 @@ const API_BASE = process.env.NODE_ENV === 'production'
   ? '' // Same domain for Vercel deployment
   : 'http://localhost:3001'; // Local development server
 
+// Available voices
+export const AVAILABLE_VOICES: Voice[] = [
+  { id: 'nova', name: 'Nova', description: 'Young, energetic female voice', gender: 'female' },
+  { id: 'alloy', name: 'Alloy', description: 'Neutral, balanced voice', gender: 'neutral' },
+  { id: 'echo', name: 'Echo', description: 'Male voice with clear pronunciation', gender: 'male' },
+  { id: 'fable', name: 'Fable', description: 'British accent, expressive', gender: 'female' },
+  { id: 'onyx', name: 'Onyx', description: 'Deep, authoritative male voice', gender: 'male' },
+  { id: 'shimmer', name: 'Shimmer', description: 'Soft, warm female voice', gender: 'female' },
+];
+
+// Available languages  
+export const AVAILABLE_LANGUAGES: Language[] = [
+  { code: 'en', name: 'English', nativeName: 'English', flag: '🇺🇸' },
+  { code: 'es', name: 'Spanish', nativeName: 'Español', flag: '🇪🇸' },
+  { code: 'fr', name: 'French', nativeName: 'Français', flag: '🇫🇷' },
+  { code: 'de', name: 'German', nativeName: 'Deutsch', flag: '🇩🇪' },
+  { code: 'it', name: 'Italian', nativeName: 'Italiano', flag: '🇮🇹' },
+  { code: 'pt', name: 'Portuguese', nativeName: 'Português', flag: '🇵🇹' },
+  { code: 'ru', name: 'Russian', nativeName: 'Русский', flag: '🇷🇺' },
+  { code: 'ja', name: 'Japanese', nativeName: '日本語', flag: '🇯🇵' },
+  { code: 'ko', name: 'Korean', nativeName: '한국어', flag: '🇰🇷' },
+  { code: 'zh', name: 'Chinese', nativeName: '中文', flag: '🇨🇳' },
+  { code: 'ar', name: 'Arabic', nativeName: 'العربية', flag: '🇸🇦' },
+  { code: 'hi', name: 'Hindi', nativeName: 'हिन्दी', flag: '🇮🇳' },
+];
+
 /**
  * Generate speech from text using OpenAI TTS API
  */
-export const generateSpeech = async (text: string): Promise<TTSResponse> => {
+export const generateSpeech = async (
+  text: string, 
+  voice: string = 'nova', 
+  language: string = 'en'
+): Promise<TTSResponse> => {
   try {
-    const request: TTSRequest = { text };
+    const request: TTSRequest = { text, voice, language };
     
     console.log(`Making TTS request to: ${API_BASE}/api/generate-speech`);
+    console.log(`Voice: ${voice}, Language: ${language}`);
     
     const response = await api.post<TTSResponse>(
       `${API_BASE}/api/generate-speech`,

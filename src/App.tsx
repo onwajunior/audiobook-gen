@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { generateSpeech, downloadAudio, getAudioUrl } from './api';
+import { generateSpeech, downloadAudio, getAudioUrl, AVAILABLE_VOICES, AVAILABLE_LANGUAGES } from './api';
 import { AppState } from './types';
 import './App.css';
 
@@ -13,6 +13,10 @@ function App() {
     filename: null,
     error: null,
     characterCount: 0,
+    selectedVoice: 'nova',
+    selectedLanguage: 'en',
+    translatedText: null,
+    showTranslation: false,
   });
 
   const audioRef = useRef<HTMLAudioElement>(null);
@@ -36,8 +40,28 @@ function App() {
         ...prev,
         text: newText,
         error: null, // Clear any previous errors
+        translatedText: null, // Clear translation when text changes
+        showTranslation: false,
       }));
     }
+  };
+
+  // Handle voice selection
+  const handleVoiceChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    setState(prev => ({
+      ...prev,
+      selectedVoice: e.target.value,
+    }));
+  };
+
+  // Handle language selection
+  const handleLanguageChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    setState(prev => ({
+      ...prev,
+      selectedLanguage: e.target.value,
+      translatedText: null, // Clear translation when language changes
+      showTranslation: false,
+    }));
   };
 
   // Generate speech from text
@@ -56,10 +80,15 @@ function App() {
       error: null,
       audioUrl: null,
       filename: null,
+      showTranslation: false,
     }));
 
     try {
-      const response = await generateSpeech(state.text.trim());
+      const response = await generateSpeech(
+        state.text.trim(), 
+        state.selectedVoice, 
+        state.selectedLanguage
+      );
       
       if (response.success && response.audioUrl && response.filename) {
         setState(prev => ({
@@ -67,6 +96,8 @@ function App() {
           audioUrl: response.audioUrl || null,
           filename: response.filename || null,
           isGenerating: false,
+          translatedText: response.translatedText || null,
+          showTranslation: !!(response.translatedText && state.selectedLanguage !== 'en'),
         }));
 
         // Auto-play the generated audio after a short delay
@@ -114,6 +145,10 @@ function App() {
   // Check if generate button should be disabled
   const isGenerateDisabled = state.isGenerating || !state.text.trim();
 
+  // Get selected voice info
+  const selectedVoiceInfo = AVAILABLE_VOICES.find(v => v.id === state.selectedVoice);
+  const selectedLanguageInfo = AVAILABLE_LANGUAGES.find(l => l.code === state.selectedLanguage);
+
   return (
     <div className="app">
       <div className="container">
@@ -123,12 +158,53 @@ function App() {
             🎙️ Text-to-Speech Generator
           </h1>
           <div className="subtitle">
-            Enter your text below and generate beautiful AI speech...
+            Enter your text below and generate beautiful AI speech in multiple voices and languages...
           </div>
         </header>
 
         {/* Main Content */}
         <main className="main">
+          {/* Controls Section */}
+          <div className="controls-section">
+            <div className="control-group">
+              <label htmlFor="voice-select" className="control-label">
+                🎭 Voice: {selectedVoiceInfo?.name} ({selectedVoiceInfo?.description})
+              </label>
+              <select
+                id="voice-select"
+                className="control-select"
+                value={state.selectedVoice}
+                onChange={handleVoiceChange}
+                disabled={state.isGenerating}
+              >
+                {AVAILABLE_VOICES.map(voice => (
+                  <option key={voice.id} value={voice.id}>
+                    {voice.name} - {voice.description}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="control-group">
+              <label htmlFor="language-select" className="control-label">
+                🌍 Language: {selectedLanguageInfo?.flag} {selectedLanguageInfo?.nativeName}
+              </label>
+              <select
+                id="language-select"
+                className="control-select"
+                value={state.selectedLanguage}
+                onChange={handleLanguageChange}
+                disabled={state.isGenerating}
+              >
+                {AVAILABLE_LANGUAGES.map(language => (
+                  <option key={language.code} value={language.code}>
+                    {language.flag} {language.name} ({language.nativeName})
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
           {/* Text Input Section */}
           <div className="input-section">
             <textarea
@@ -146,6 +222,18 @@ function App() {
               </span>
             </div>
           </div>
+
+          {/* Translation Display */}
+          {state.showTranslation && state.translatedText && (
+            <div className="translation-section">
+              <div className="translation-header">
+                🔄 Translation to {selectedLanguageInfo?.nativeName}:
+              </div>
+              <div className="translation-text">
+                {state.translatedText}
+              </div>
+            </div>
+          )}
 
           {/* Generate Button */}
           <div className="button-section">
@@ -187,6 +275,11 @@ function App() {
 
             {state.audioUrl && (
               <div className="audio-player">
+                <div className="audio-metadata">
+                  Voice: <strong>{selectedVoiceInfo?.name}</strong> | 
+                  Language: <strong>{selectedLanguageInfo?.flag} {selectedLanguageInfo?.name}</strong>
+                </div>
+                
                 <audio
                   ref={audioRef}
                   className="audio-element"
