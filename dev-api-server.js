@@ -4,31 +4,31 @@ import { config } from 'dotenv';
 import OpenAI from 'openai';
 import { v4 as uuidv4 } from 'uuid';
 
+// Load environment variables
 config({ path: '.env.local' });
 
 const app = express();
 const PORT = 3001;
 
-// Initialize OpenAI
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
-
-// Configuration
-const MAX_TEXT_LENGTH = 4000;
-const VOICE = 'nova';
-const MODEL = 'tts-1-hd';
-
-// In-memory storage for development (same as serverless function)
-const audioCache = new Map();
-
 // Middleware
 app.use(cors());
 app.use(express.json());
 
-// Routes
+// Configure OpenAI client
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY,
+});
 
-// Health check endpoint
+// Constants
+const MAX_TEXT_LENGTH = 4000;
+const DEFAULT_VOICE = 'nova';
+const DEFAULT_MODEL = 'tts-1-hd';
+const AVAILABLE_VOICES = ['alloy', 'echo', 'fable', 'onyx', 'nova', 'shimmer'];
+
+// In-memory audio storage for development
+const audioCache = new Map();
+
+// Health endpoint
 app.get('/api/health', async (req, res) => {
   try {
     const timestamp = new Date().toISOString();
@@ -42,22 +42,29 @@ app.get('/api/health', async (req, res) => {
       });
     }
 
-    // Test connectivity
-    await openai.models.list();
-
-    res.json({
-      status: 'ok',
-      timestamp,
-      openaiConnected: true,
-      message: 'All systems operational'
-    });
+    try {
+      await openai.models.list();
+      res.status(200).json({
+        status: 'ok',
+        timestamp,
+        openaiConnected: true,
+        message: 'All systems operational'
+      });
+    } catch (openaiError) {
+      console.error('OpenAI connectivity test failed:', openaiError);
+      res.status(503).json({
+        status: 'error',
+        timestamp,
+        openaiConnected: false,
+        message: 'OpenAI API connectivity issue'
+      });
+    }
   } catch (error) {
     console.error('Health check error:', error);
-    res.status(503).json({
+    res.status(500).json({
       status: 'error',
       timestamp: new Date().toISOString(),
-      openaiConnected: false,
-      message: 'OpenAI API connectivity issue'
+      message: 'Internal server error'
     });
   }
 });
@@ -65,9 +72,16 @@ app.get('/api/health', async (req, res) => {
 // Generate speech endpoint
 app.post('/api/generate-speech', async (req, res) => {
   try {
-    const { text } = req.body;
+    if (!process.env.OPENAI_API_KEY) {
+      console.error('Missing OPENAI_API_KEY environment variable');
+      return res.status(500).json({
+        success: false,
+        error: 'Server configuration error. Please try again later.'
+      });
+    }
 
-    // Validation
+    const { text, voice = DEFAULT_VOICE, language = 'en' } = req.body;
+
     if (!text || typeof text !== 'string') {
       return res.status(400).json({
         success: false,
@@ -89,58 +103,103 @@ app.post('/api/generate-speech', async (req, res) => {
       });
     }
 
-    // Generate audio
-    console.log(`Generating speech for ${text.length} characters...`);
-    
+    if (!AVAILABLE_VOICES.includes(voice)) {
+      return res.status(400).json({
+        success: false,
+        error: `Invalid voice. Available voices: ${AVAILABLE_VOICES.join(', ')}`
+      });
+    }
+
+    const audioId = uuidv4();
+    const filename = `speech_${voice}_${language}_${audioId}.mp3`;
+
+    console.log(`Generating speech: ${text.length} chars, voice: ${voice}, language: ${language}`);
+
+    let finalText = text.trim();
+    let translatedText = null;
+
+    // Translate text if language is not English
+    if (language !== 'en' && language !== 'english') {
+      try {
+        console.log(`Translating text to ${language}...`);
+        
+        const translationResponse = await openai.chat.completions.create({
+          model: 'gpt-3.5-turbo',
+          messages: [
+            {
+              role: 'system',
+              content: `You are a professional translator. Translate the given text to ${language}. Only return the translated text, nothing else.`
+            },
+            {
+              role: 'user',
+              content: text.trim()
+            }
+          ],
+          max_tokens: 2000,
+          temperature: 0.3,
+        });
+
+        translatedText = translationResponse.choices[0]?.message?.content?.trim();
+        if (translatedText) {
+          finalText = translatedText;
+          console.log(`Translation successful: ${translatedText.substring(0, 100)}...`);
+        }
+      } catch (translationError) {
+        console.error('Translation failed:', translationError);
+        translatedText = null;
+      }
+    }
+
+    // Call OpenAI TTS API
     const mp3Response = await openai.audio.speech.create({
-      model: MODEL,
-      voice: VOICE,
-      input: text.trim(),
+      model: DEFAULT_MODEL,
+      voice: voice,
+      input: finalText,
       response_format: 'mp3',
     });
 
     const buffer = Buffer.from(await mp3Response.arrayBuffer());
     console.log(`Generated audio: ${buffer.length} bytes`);
 
-    // Store audio temporarily
-    const audioId = uuidv4();
-    const filename = `speech_${audioId}.mp3`;
-    
+    // Store audio in cache for dev server
     audioCache.set(filename, {
       buffer,
-      timestamp: Date.now(),
       contentType: 'audio/mpeg'
     });
 
-    // Cleanup old files
-    const oneHourAgo = Date.now() - (60 * 60 * 1000);
-    for (const [key, value] of audioCache.entries()) {
-      if (value.timestamp < oneHourAgo) {
-        audioCache.delete(key);
-      }
-    }
+    // Convert to base64 data URL for direct usage (same as production)
+    const base64Audio = buffer.toString('base64');
+    const audioDataUrl = `data:audio/mpeg;base64,${base64Audio}`;
 
-    res.json({
+    const response = {
       success: true,
-      audioUrl: `/api/audio/${filename}`,
-      filename
-    });
+      audioUrl: audioDataUrl,
+      filename,
+      voice,
+      language,
+      originalText: text.trim(),
+      translatedText: translatedText || null
+    };
+
+    res.status(200).json(response);
 
   } catch (error) {
     console.error('TTS Generation Error:', error);
-    
-    if (error.message?.includes('API key')) {
-      return res.status(401).json({
-        success: false,
-        error: 'Invalid API configuration.'
-      });
-    }
-    
-    if (error.message?.includes('quota') || error.message?.includes('rate limit')) {
-      return res.status(429).json({
-        success: false,
-        error: 'Service temporarily unavailable. Please try again later.'
-      });
+
+    if (error instanceof Error) {
+      if (error.message.includes('API key')) {
+        return res.status(401).json({
+          success: false,
+          error: 'Invalid API configuration.'
+        });
+      }
+      
+      if (error.message.includes('quota') || error.message.includes('rate limit')) {
+        return res.status(429).json({
+          success: false,
+          error: 'Service temporarily unavailable. Please try again later.'
+        });
+      }
     }
 
     res.status(500).json({
@@ -150,40 +209,24 @@ app.post('/api/generate-speech', async (req, res) => {
   }
 });
 
-// Serve audio files
+// Audio file endpoint (for backward compatibility)
 app.get('/api/audio/:filename', (req, res) => {
-  try {
-    const { filename } = req.params;
-
-    // Validate filename
-    if (!filename.match(/^speech_[a-f0-9-]+\.mp3$/)) {
-      return res.status(400).json({
-        error: 'Invalid filename format.'
-      });
-    }
-
-    const audioData = audioCache.get(filename);
-    if (!audioData) {
-      return res.status(404).json({
-        error: 'Audio file not found or expired.'
-      });
-    }
-
-    // Set headers
-    res.setHeader('Content-Type', 'audio/mpeg');
-    res.setHeader('Content-Length', audioData.buffer.length);
-    res.setHeader('Cache-Control', 'public, max-age=3600');
-    res.setHeader('Accept-Ranges', 'bytes');
-    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-
-    res.send(audioData.buffer);
-
-  } catch (error) {
-    console.error('Audio serving error:', error);
-    res.status(500).json({
-      error: 'Failed to serve audio file.'
+  const { filename } = req.params;
+  
+  if (!audioCache.has(filename)) {
+    return res.status(404).json({
+      success: false,
+      error: 'Audio file not found'
     });
   }
+
+  const { buffer, contentType } = audioCache.get(filename);
+  
+  res.setHeader('Content-Type', contentType);
+  res.setHeader('Content-Length', buffer.length);
+  res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+  
+  res.send(buffer);
 });
 
 // Start server
@@ -193,6 +236,5 @@ app.listen(PORT, () => {
   console.log(`   Health: http://localhost:${PORT}/api/health`);
   console.log(`   Generate: POST http://localhost:${PORT}/api/generate-speech`);
   console.log(`   Audio: GET http://localhost:${PORT}/api/audio/{filename}`);
-  console.log('');
-  console.log('💡 Start the React frontend with: npm run dev');
+  console.log(`💡 Start the React frontend with: npm run dev`);
 }); 
