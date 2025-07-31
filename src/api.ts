@@ -42,7 +42,7 @@ export const generateSpeech = async (text: string): Promise<TTSResponse> => {
         throw new Error('Service is busy. Please try again in a moment.');
       }
       
-      if (error.response?.status >= 500) {
+      if (error.response && error.response.status >= 500) {
         throw new Error('Server error. Please try again later.');
       }
     }

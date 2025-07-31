@@ -64,8 +64,8 @@ function App() {
       if (response.success && response.audioUrl && response.filename) {
         setState(prev => ({
           ...prev,
-          audioUrl: response.audioUrl,
-          filename: response.filename,
+          audioUrl: response.audioUrl || null,
+          filename: response.filename || null,
           isGenerating: false,
         }));
 

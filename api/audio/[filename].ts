@@ -1,40 +1,52 @@
 import { VercelRequest, VercelResponse } from '@vercel/node';
 
+// Declare global audio cache type
+declare global {
+  var audioCache: Map<string, {
+    buffer: Buffer;
+    timestamp: number;
+    contentType: string;
+  }> | undefined;
+}
+
 export default async function handler(
   req: VercelRequest,
   res: VercelResponse
 ): Promise<void> {
   // Only allow GET requests
   if (req.method !== 'GET') {
-    return res.status(405).json({
+    res.status(405).json({
       error: 'Method not allowed. Use GET.'
     });
+    return;
   }
 
   try {
     const { filename } = req.query;
 
     if (!filename || typeof filename !== 'string') {
-      return res.status(400).json({
+      res.status(400).json({
         error: 'Filename is required.'
       });
+      return;
     }
 
     // Validate filename format (security check)
     if (!filename.match(/^speech_[a-f0-9-]+\.mp3$/)) {
-      return res.status(400).json({
+      res.status(400).json({
         error: 'Invalid filename format.'
       });
+      return;
     }
 
     // Get audio data from temporary storage
-    global.audioCache = global.audioCache || new Map();
-    const audioData = global.audioCache.get(filename);
+    const audioData = global.audioCache?.get(filename);
 
     if (!audioData) {
-      return res.status(404).json({
+      res.status(404).json({
         error: 'Audio file not found or expired.'
       });
+      return;
     }
 
     // Set proper headers for audio streaming
@@ -51,17 +63,12 @@ export default async function handler(
     res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
-    // Handle OPTIONS request for CORS
-    if (req.method === 'OPTIONS') {
-      return res.status(200).end();
-    }
-
     // Stream the audio file
-    return res.status(200).send(audioData.buffer);
+    res.status(200).send(audioData.buffer);
 
   } catch (error) {
     console.error('Audio serving error:', error);
-    return res.status(500).json({
+    res.status(500).json({
       error: 'Failed to serve audio file.'
     });
   }
