@@ -9,8 +9,11 @@ const api = axios.create({
   },
 });
 
-// Base URL for API calls - use development server on port 3001
-const API_BASE = process.env.NODE_ENV === 'production' ? '' : 'http://localhost:3001';
+// Base URL for API calls
+// In production (Vercel), use same domain. In development, use localhost:3001
+const API_BASE = process.env.NODE_ENV === 'production' 
+  ? '' // Same domain for Vercel deployment
+  : 'http://localhost:3001'; // Local development server
 
 /**
  * Generate speech from text using OpenAI TTS API
@@ -18,6 +21,8 @@ const API_BASE = process.env.NODE_ENV === 'production' ? '' : 'http://localhost:
 export const generateSpeech = async (text: string): Promise<TTSResponse> => {
   try {
     const request: TTSRequest = { text };
+    
+    console.log(`Making TTS request to: ${API_BASE}/api/generate-speech`);
     
     const response = await api.post<TTSResponse>(
       `${API_BASE}/api/generate-speech`,
@@ -45,6 +50,13 @@ export const generateSpeech = async (text: string): Promise<TTSResponse> => {
       if (error.response && error.response.status >= 500) {
         throw new Error('Server error. Please try again later.');
       }
+      
+      // Log the full error for debugging
+      console.error('Axios error details:', {
+        status: error.response?.status,
+        statusText: error.response?.statusText,
+        data: error.response?.data
+      });
     }
     
     throw new Error('Failed to generate speech. Please check your connection and try again.');
@@ -92,6 +104,8 @@ export const getAudioUrl = (audioUrl: string): string => {
  */
 export const checkHealth = async (): Promise<HealthResponse> => {
   try {
+    console.log(`Checking health at: ${API_BASE}/api/health`);
+    
     const response = await api.get<HealthResponse>(
       `${API_BASE}/api/health`,
       { timeout: 5000 }
