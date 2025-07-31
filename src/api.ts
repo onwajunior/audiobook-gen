@@ -64,28 +64,47 @@ export const generateSpeech = async (text: string): Promise<TTSResponse> => {
 };
 
 /**
- * Download audio file
+ * Download audio file - now handles both data URLs and file URLs
  */
 export const downloadAudio = async (audioUrl: string, filename: string): Promise<void> => {
   try {
-    const response = await api.get(`${API_BASE}${audioUrl}`, {
-      responseType: 'blob',
-      timeout: 15000, // 15 seconds for download
-    });
+    // Check if it's a data URL (base64 encoded)
+    if (audioUrl.startsWith('data:audio/mpeg;base64,')) {
+      // Convert data URL to blob and download
+      const response = await fetch(audioUrl);
+      const blob = await response.blob();
+      
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      
+      // Cleanup
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+    } else {
+      // Handle regular file URLs (for local development)
+      const response = await api.get(`${API_BASE}${audioUrl}`, {
+        responseType: 'blob',
+        timeout: 15000, // 15 seconds for download
+      });
 
-    // Create blob URL and trigger download
-    const blob = new Blob([response.data], { type: 'audio/mpeg' });
-    const url = window.URL.createObjectURL(blob);
-    
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = filename;
-    document.body.appendChild(link);
-    link.click();
-    
-    // Cleanup
-    document.body.removeChild(link);
-    window.URL.revokeObjectURL(url);
+      // Create blob URL and trigger download
+      const blob = new Blob([response.data], { type: 'audio/mpeg' });
+      const url = window.URL.createObjectURL(blob);
+      
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      
+      // Cleanup
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+    }
   } catch (error) {
     console.error('Failed to download audio:', error);
     throw new Error('Failed to download audio file. Please try again.');
@@ -93,9 +112,14 @@ export const downloadAudio = async (audioUrl: string, filename: string): Promise
 };
 
 /**
- * Get audio file URL for playing
+ * Get audio file URL for playing - now handles data URLs
  */
 export const getAudioUrl = (audioUrl: string): string => {
+  // If it's already a data URL, return as-is
+  if (audioUrl.startsWith('data:audio/mpeg;base64,')) {
+    return audioUrl;
+  }
+  // Otherwise, construct the full URL (for local development)
   return `${API_BASE}${audioUrl}`;
 };
 

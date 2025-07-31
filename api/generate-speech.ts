@@ -13,15 +13,6 @@ const MAX_TEXT_LENGTH = 4000;
 const VOICE = 'nova'; // Using nova as the default voice per MVP
 const MODEL = 'tts-1-hd'; // High quality model
 
-// Declare global audio cache type
-declare global {
-  var audioCache: Map<string, {
-    buffer: Buffer;
-    timestamp: number;
-    contentType: string;
-  }> | undefined;
-}
-
 export default async function handler(
   req: VercelRequest,
   res: VercelResponse
@@ -89,33 +80,16 @@ export default async function handler(
 
     // Convert response to buffer
     const buffer = Buffer.from(await mp3Response.arrayBuffer());
-
     console.log(`Generated audio: ${buffer.length} bytes`);
 
-    // Store the audio data in global cache
-    // Initialize cache if it doesn't exist
-    if (!global.audioCache) {
-      global.audioCache = new Map();
-    }
-    
-    global.audioCache.set(filename, {
-      buffer,
-      timestamp: Date.now(),
-      contentType: 'audio/mpeg'
-    });
+    // Convert to base64 data URL for direct usage
+    const base64Audio = buffer.toString('base64');
+    const audioDataUrl = `data:audio/mpeg;base64,${base64Audio}`;
 
-    // Clean up old files (simple cleanup for MVP)
-    const oneHourAgo = Date.now() - (60 * 60 * 1000);
-    for (const [key, value] of global.audioCache.entries()) {
-      if (value.timestamp < oneHourAgo) {
-        global.audioCache.delete(key);
-      }
-    }
-
-    // Return success response
+    // Return success response with audio data
     const response: TTSResponse = {
       success: true,
-      audioUrl: `/api/audio/${filename}`,
+      audioUrl: audioDataUrl, // Direct data URL instead of file path
       filename
     };
 
