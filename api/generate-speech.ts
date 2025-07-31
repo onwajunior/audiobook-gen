@@ -106,10 +106,11 @@ export default async function handler(
           temperature: 0.3,
         });
 
-        translatedText = translationResponse.choices[0]?.message?.content?.trim();
-        if (translatedText) {
-          finalText = translatedText;
-          console.log(`Translation successful: ${translatedText.substring(0, 100)}...`);
+        const rawTranslation = translationResponse.choices[0]?.message?.content?.trim();
+        if (rawTranslation) {
+          translatedText = rawTranslation;
+          finalText = rawTranslation;
+          console.log(`Translation successful: ${rawTranslation.substring(0, 100)}...`);
         }
       } catch (translationError) {
         console.error('Translation failed:', translationError);
