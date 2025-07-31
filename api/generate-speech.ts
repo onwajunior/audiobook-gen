@@ -142,7 +142,7 @@ export default async function handler(
       voice,
       language,
       originalText: text.trim(),
-      translatedText: translatedText || null
+      translatedText: translatedText ?? null
     };
 
     res.status(200).json(response);
